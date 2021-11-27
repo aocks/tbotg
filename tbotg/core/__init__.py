@@ -1,0 +1,2 @@
+"""Core implementation of tbotg
+"""

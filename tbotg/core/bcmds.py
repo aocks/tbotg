@@ -158,7 +158,8 @@ the docs for tbotg.core.main_bot.TelegramMainBot).
     VALID_OPT_NAME_RE = re.compile('^[_a-zA-z0-9]+$')
 
     def __init__(self, name: typing.Optional[str] = None,
-                 cmd_args: typing.Sequence[click.Option] = ()):
+                 cmd_args: typing.Sequence[click.Option] = (),
+                 group_force_pm: bool = True):
         """Initializer.
 
         :param name=None:    String name of command.
@@ -167,8 +168,12 @@ the docs for tbotg.core.main_bot.TelegramMainBot).
                           command arguments. Can be None or [] if you want
                           to use `_make_default_cmd_args` instead.
 
+        :param group_force_pm=True:  If True, then the bot will tell the
+                                     user to do the command in private chat
+                                     instead of group.
         """
         self._info = {}  # see store_data, get_data, clear_data methods
+        self.group_force_pm = group_force_pm
         self.cmd_args = cmd_args or self._make_default_cmd_args()
         self.cmd_args_map = collections.OrderedDict([
             (item.name, item) for item in self.cmd_args])
@@ -292,6 +297,17 @@ easiest to standardize and work with for this framework.
 
 First sets defaults and then calls self.review.
         """
+        msg = self.get_message(update)
+        logging.info('Starting main for %s of chat.type %s',
+                     self.name(), msg.chat.type)
+        if self.group_force_pm and msg.chat.type != 'private':
+            my_name = context.bot.get_me()['username']
+            self.respond('@' + msg.from_user.username + ' : ' + (
+                'please run command /%s in private chat: %s' % (
+                    self.name(),
+                    f'https://telegram.me/{my_name}?start=start')),
+                         update, context, disable_notification=True)
+            return ConversationHandler.END
         self._prep_args(update, context)
         return self.review(update, context)
 

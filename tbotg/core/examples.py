@@ -39,8 +39,9 @@ The `update` and `context` are passed in from Telegram Python API.
 
 
 @click.command()
-@click.option('--shout', help='What to shout')
-@click.option('--count', type=int, help='How many times to repeat.')
+@click.option('--shout', '/shout', help='What to shout')
+@click.option('--count', '/count', type=int,
+              help='How many times to repeat.')
 def shoutntimes(shout, count):
     "Shout something N times."
     return 'I will shout it %i times: %s' % (
@@ -122,8 +123,8 @@ class SayNTimes(CmdWithArgs):
 
     def _make_default_cmd_args(self):
         "Setup command parameters using click.Option"
-        return [click.Option(['--say'], help='What to say'),
-                click.Option(['--count', '-c'],
+        return [click.Option(['--say', '/say'], help='What to say'),
+                click.Option(['--count', '/count', '-c'],
                              help='How many times to repeat.', type=int)]
 
     def process_command(self, update, context):

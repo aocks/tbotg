@@ -25,12 +25,18 @@ def cli():
 @click.option('--package', default=None)
 @click.option('--with_name', default=None, help=(
     'If provided, passed as name parameter to bot_cls to override default.'))
-def serve(bot_cls, module, package, with_name):
+@click.option('--loglevel', default=None, type=click.Choice([
+    'DEBUG', 'INFO', 'WARNING', 'CRITICAL', 'ERROR', 'FATAL']),
+              help=('If provided, set root log level to this.'))
+def serve(bot_cls, module, package, with_name, loglevel):
     "Run the server to listen and respond to Telegram messages."
 
+    if loglevel:
+        logging.getLogger('').setLevel(getattr(logging, loglevel))
     if with_name in MY_BOT_INFO:
         raise ValueError('Refusing to serve already running bot %s' % (
             str(with_name)))
+    logging.info('Importing module "%s" from package "%s"', module, package)
     my_mod = importlib.import_module(module, package=package)
     klass = getattr(my_mod, bot_cls, None)
     if not klass:

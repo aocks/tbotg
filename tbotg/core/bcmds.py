@@ -1,6 +1,8 @@
 """Generic bot commands.
 """
 
+import shlex
+import copy
 import re
 import logging
 import typing
@@ -67,12 +69,15 @@ object whether the update is from a callback_query or regular message.
         return main_message
 
     @classmethod
-    def respond(cls, msg: str, update, context):
+    def respond(cls, msg: str, update, context, **kwargs):
         """Respond to the user with a message.
 
         :param msg:    String message to respond with.
 
         :param update, context: From telegram API.
+
+        :param **kwargs:  Passed to context.bot.send_message. For example,
+                          you could include parse_mode='MarkdownV2'.
 
         ~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-
 
@@ -87,7 +92,7 @@ object whether the update is from a callback_query or regular message.
         # pytype: disable=attribute-error
         result = context.bot.send_message(
             chat_id=main_msg.chat_id,
-            text=msg)
+            text=msg, **kwargs)
         # pytype: enable=attribute-error
         return result
 
@@ -152,8 +157,7 @@ the docs for tbotg.core.main_bot.TelegramMainBot).
     VALID_OPT_NAME_RE = re.compile('^[_a-zA-z0-9]+$')
 
     def __init__(self, name: typing.Optional[str] = None,
-                 cmd_args: typing.Sequence[
-            click.Option] = ()):
+                 cmd_args: typing.Sequence[click.Option] = ()):
         """Initializer.
 
         :param name=None:    String name of command.
@@ -283,8 +287,11 @@ easiest to standardize and work with for this framework.
         return self._info.get((self.name(), chat_id), {})
 
     def main(self, update, context):
-        """Main entry point for command; just calls self.review.
+        """Main entry point for command.
+
+First sets defaults and then calls self.review.
         """
+        self._prep_args(update, context)
         return self.review(update, context)
 
     def review(self, update, context):
@@ -296,6 +303,39 @@ easiest to standardize and work with for this framework.
         update_message.reply_text(text=f'Preparing command: {self.name()}',
                                   reply_markup=reply_markup)
         return self.STATE_REVIEW
+
+    @staticmethod
+    def _fake_callback(*args, **kwargs):
+        """Fake callback for use by _prep_args in click parsing.
+        """
+        logging.info('Called _fake_callback with args: %s, kwargs: %s',
+                     args, kwargs)
+
+    def _prep_args(self, update, context):
+        """Helper method to prepare arguments from data.
+
+This helper is intended to be called by the main method to try and
+prepare arguments (e.g., default arguments or command line arguments).
+        """
+        pcmd = click.Command(
+            name=self.name(), callback=self._fake_callback, params=[
+                copy.deepcopy(c) for c in self.cmd_args])
+        # pytype: disable=attribute-error
+        with click.Context(pcmd, resilient_parsing=True) as ctx:
+            # pytype: enable=attribute-error
+            split_args = shlex.split(' '.join(context.args))
+            pcmd.parse_args(ctx, split_args)
+            logging.info('For %s, parsed command line: %s',
+                         self.name(), ctx.params)
+            if ctx.params:
+                self.store_data(update, ctx.params)
+        data = self.get_data(update)
+        for opt in self.cmd_args:
+            value = data.get(opt.name, None)
+            if value in (None, '') and opt.default not in (None, ''):
+                logging.debug('Setting default of "%s" for "%s"',
+                              opt.default, opt.name)
+                self.store_data(update, {opt.name: opt.default})
 
     def _make_main_reply_markup(self, update):
         """Helper to make reply markup to show user main menu.
@@ -521,8 +561,10 @@ You could turn this into a telegram command via `ClickCmd(shoutntimes)`.
 See the `ExampleBot` in `tbotg.core.examples` for a full example.
     """
 
-    def __init__(self, click_cmd, name=None):
+    def __init__(self, click_cmd, name=None,
+                 result_parse_mode=None):
         self.click_cmd = click_cmd
+        self.result_parse_mode = result_parse_mode
         super().__init__(name=name or click_cmd.name)
 
     def get_help_docs(self):
@@ -532,6 +574,12 @@ See the `ExampleBot` in `tbotg.core.examples` for a full example.
         return self.click_cmd.params
 
     def process_command(self, update, context):
+        logging.info('Processing command %s from user %s',
+                     self.name(), self.get_message(update).chat.username)
         args = self.get_data(update)
         result = self.click_cmd.callback(**args)
-        self.respond(result, update, context)
+        logging.info('Responding with result command %s from user %s:\n%s',
+                     self.name(), self.get_message(update).chat.username,
+                     result)
+        self.respond(result, update, context,
+                     parse_mode=self.result_parse_mode)

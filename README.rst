@@ -56,8 +56,8 @@ python file named ``mybot.py`` as shown below:
 
 
     @click.command()
-    @click.option('--say', help='What to say')
-    @click.option('--count', type=int, help='How many times to repeat.')
+    @click.option('--say', '/say', help='What to say')
+    @click.option('--count', '/count', type=int, help='How many times to repeat.')
     def repeatntimes(say, count):
         "Repeat something N times."
         return 'I will repeat it %i times: %s' % (
@@ -105,3 +105,17 @@ To test your command,
 #. Click on the parameter buttons to set the values of ``say`` and
    ``count``.
 #. Click the ``confirm`` button to run the command.
+
+Note that you can also include command line arguments when calling a
+command in Telegram via something like:
+
+.. code:: example
+
+    /repeatntimes /say hi
+
+and that option will be automatically filled in. Note that it is best to
+use a leading slash (``/``) for these kinds of options and not the usual
+double hyphen (``--``) since some versions of Telegram `auto-replace
+double
+hyphens <https://github.com/telegramdesktop/tdesktop/issues/522>`__ with
+a "long dash".

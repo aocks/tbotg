@@ -1,6 +1,7 @@
 """Generic bot commands.
 """
 
+import datetime
 import shlex
 import copy
 import re
@@ -324,10 +325,12 @@ prepare arguments (e.g., default arguments or command line arguments).
         with click.Context(pcmd, resilient_parsing=True) as ctx:
             # pytype: enable=attribute-error
             split_args = shlex.split(' '.join(context.args))
-            pcmd.parse_args(ctx, split_args)
+            pcmd.parse_args(ctx,               # make a copy of split_args
+                            list(split_args))  # since parse_args modifies it
             logging.info('For %s, parsed command line: %s',
-                         self.name(), ctx.params)
+                         self.name(), split_args)
             if ctx.params:
+                logging.info('Storing parsed args: %s', ctx.params)
                 self.store_data(update, ctx.params)
         data = self.get_data(update)
         for opt in self.cmd_args:
@@ -574,8 +577,9 @@ See the `ExampleBot` in `tbotg.core.examples` for a full example.
         return self.click_cmd.params
 
     def process_command(self, update, context):
-        logging.info('Processing command %s from user %s',
-                     self.name(), self.get_message(update).chat.username)
+        logging.info('Processing command %s from user %s at %s UTC',
+                     self.name(), self.get_message(update).chat.username,
+                     datetime.datetime.utcnow())
         args = self.get_data(update)
         result = self.click_cmd.callback(**args)
         logging.info('Responding with result command %s from user %s:\n%s',

@@ -20,9 +20,12 @@ class TelegramMainBot:
     def __init__(self, name: str, cmds: typing.Optional[typing.Sequence[
             GenericCmd]] = None):
         self.bot_name = name
-        self.cmds = cmds
-        if not self.cmds:
-            self.cmds = self.make_cmds()
+        self.cmds_dict = {c.name(): c for c in (cmds or [])}
+        if not self.cmds_dict:
+            self.cmds_dict = {c.name(): c for c in self.make_cmds()}
+        for name, item in self.cmds_dict.items():
+            logging.info('Creating command %s', name)
+            item.set_bot_ref(self)
         self.validate()
         self.run()
 
@@ -31,7 +34,7 @@ class TelegramMainBot:
         """
         if not self.bot_name:
             raise ValueError('No name provided for bot.')
-        if not self.cmds:
+        if not self.cmds_dict:
             raise ValueError('No commands provided for bot.')
 
     @classmethod
@@ -64,8 +67,9 @@ provided in `__init__`.
     def _add_handlers(self, updater):
         dispatcher = updater.dispatcher
         dispatcher.add_handler(CommandHandler('help', self.help_command))
-        for cmd in self.cmds:
-            name = cmd.name()
+        for name, cmd in self.cmds_dict.items():
+            assert name == cmd.name(), (
+                f'Mismatch in command name for {name} != {cmd.name()}.')
             if cmd.show_help:
                 self.docstrings[name] = cmd.get_help_docs()
                 assert isinstance(self.docstrings[name], str), (

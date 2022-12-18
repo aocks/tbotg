@@ -1,6 +1,7 @@
 """Generic bot commands.
 """
 
+import weakref
 import datetime
 import shlex
 import copy
@@ -38,8 +39,15 @@ command. See also CmdWithArgs for a more sophisticated structure.
         if not name:
             raise ValueError('Must provide name.')
         self._name = name
+        self._main_bot_ref = None
         self.show_help = show_help
         self.validate()
+
+    def set_bot_ref(self, bot):
+        self._main_bot_ref = weakref.ref(bot)
+
+    def get_bot_ref(self):
+        return self._main_bot_ref()
 
     def validate(self):
         """Do basic validation of parameters.
@@ -311,14 +319,32 @@ First sets defaults and then calls self.review.
         self._prep_args(update, context)
         return self.review(update, context)
 
+    def end_without_review(self, update, context):
+        """Sub-classes can override to end without showing review options.
+
+        By default we allow the user to review the command until they
+        either hit confirm or cancel. But sometimes commands may be able
+        to decide they have enough information to short circuit the review
+        process. In that case, a sub-class should override this method to
+
+          1. Decide if no review should happen.
+          2. Send any messages to the user (e.g., by calling process_command).
+          3. Return False to cause the conversation to end before review.
+        """
+        _ = update, context
+        return False
+
     def review(self, update, context):
         """Handler for when user is reviewing parameters for command.
         """
-        _ = context
-        reply_markup = self._make_main_reply_markup(update)
+        if self.end_without_review(update, context):
+            return ConversationHandler.END
+        
+        reply_markup = self._make_main_reply_markup(update)        
         update_message = self.get_message(update)
         update_message.reply_text(text=f'Preparing command: {self.name()}',
                                   reply_markup=reply_markup)
+
         return self.STATE_REVIEW
 
     @staticmethod
@@ -390,11 +416,26 @@ here we parse apart that data and handle the action.
         """
         data = update.callback_query.data
         msg, name, action, *values = data.split('#')
-        assert msg == 'do' and name == self.name(), (
-            f'Invalid callback data {data}')
-        main_msg = self.get_message(update)
-        context.bot.edit_message_reply_markup(      # removes old
-            main_msg.chat_id, main_msg.message_id)  # inline keyboard
+        if msg == 'do':
+            assert name == self.name(), (
+                f'Invalid callback data {data} for cmd {self.name()}')
+            main_msg = self.get_message(update)
+            context.bot.edit_message_reply_markup(      # removes old
+                main_msg.chat_id, main_msg.message_id)  # inline keyboard
+            return self.do_action_callback(
+                action, data, values, update, context)
+        raise ValueError(f'Invalid {msg=} in {data=}')
+
+    def do_invoke(self, update, context, name, values):
+        main_bot = self.get_bot_ref()
+        cmd = main_bot.cmds_dict.get(name)
+        if not cmd:
+            raise ValueError(f'Could not invoke command {name}.')#FIXME
+        kwargs = dict(zip(values[::2], values[1::2]))
+        cmd.store_data(update, kwargs)
+        cmd.process_command(update, context)
+
+    def do_action_callback(self, action, data, values, update, context):
         if action == 'edit':
             return self._handle_edit_button(data, values, update, context)
         if action == 'helparg':
@@ -541,6 +582,13 @@ Then we go back into STATE_REVIEW and
         self.respond('cancelled', update, context)
         return ConversationHandler.END
 
+    def generic_callback_query(self, update, context):
+        data = update.callback_query.data
+        msg, name, action, *values = data.split('#')
+        assert msg == 'callback' and name == self.name()
+        FIXME#FIXME
+        
+        
     def add_to_bot(self, bot, updater):
         logging.info('Adding cmd %s to main bot %s', self.name(), bot)
         conv_handler = ConversationHandler(
@@ -555,6 +603,8 @@ Then we go back into STATE_REVIEW and
                 },
             fallbacks=[
                 CommandHandler('cancel', self.cancel)])
+        updater.dispatcher.add_handler(CallbackQueryHandler(
+            self.generic_callback_query, pattern=f'^callback#{self.name()}#.*'))
         updater.dispatcher.add_handler(conv_handler)
         updater.dispatcher.add_handler(CommandHandler('cancel', self.cancel))
 

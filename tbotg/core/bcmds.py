@@ -20,6 +20,9 @@ from telegram.ext import (
     CallbackQueryHandler, ConversationHandler)
 
 
+from tbotg.core.callback_tools import CallbackData
+
+
 class GenericCmd:
     """Generic command that the bot can handle.
 
@@ -27,26 +30,39 @@ You can sub-class this and override the `main` method to create a simple
 command. See also CmdWithArgs for a more sophisticated structure.
     """
 
+
     def __init__(self, name: typing.Optional[str] = None,
-                 show_help: bool = True):
+                 show_help: bool = True, in_menu: bool = True):
         """Initializer.
 
         :param name=None:   String name. Must be provided.
 
         :param show_help=True:  Whether to include class docstring in help.
 
+        :param in_menu=True:  Whether to show command in Telegram menu.
+
         """
         if not name:
             raise ValueError('Must provide name.')
         self._name = name
+        self._in_menu = in_menu
         self._main_bot_ref = None
         self.show_help = show_help
         self.validate()
 
+    @property
+    def in_menu(self):
+        "Whether the bot should be included in the menu"
+        return self._in_menu
+
     def set_bot_ref(self, bot):
+        """Set weak reference to main telegram bot.
+        """
         self._main_bot_ref = weakref.ref(bot)
 
     def get_bot_ref(self):
+        """Get reference to main telegram bot.
+        """
         return self._main_bot_ref()
 
     def validate(self):
@@ -62,6 +78,24 @@ command. See also CmdWithArgs for a more sophisticated structure.
     def get_help_docs(self):
         "Show docstring for this command to user."
         return self.__doc__ or ''
+
+    @staticmethod
+    def create_callback_data(key: str = 'callback', cmd: str = None,
+                             action: str = 'invoke', **kwargs) -> str:
+        """Create string callback data for telegram bot in canonical way.
+
+        See docs for CallbackData, CallbackData.__init__, CallbackData.to_string
+        """
+        return CallbackData(key, cmd, action, **kwargs).to_string()
+
+    @staticmethod
+    def parse_callback_data(data: str):
+        """Decode string callback data.
+
+        See docs for CallbackData and CallbackData.from_string.
+        """
+        cb_data = CallbackData.from_string(data)
+        return cb_data.key, cb_data.cmd, cb_data.action, cb_data.values
 
     @staticmethod
     def get_message(update):
@@ -99,9 +133,14 @@ object whether the update is from a callback_query or regular message.
         """
         main_msg = cls.get_message(update)
         # pytype: disable=attribute-error
-        result = context.bot.send_message(
-            chat_id=main_msg.chat_id,
-            text=msg, **kwargs)
+        kwargs = dict(kwargs)
+        kwargs.update(chat_id=main_msg.chat_id, text=msg)
+        try:
+            result = context.bot.send_message(**kwargs)
+        except Exception as problem:
+            logging.warning('Unable to send_message(**%s) because %s',
+                            kwargs, problem)
+            raise
         # pytype: enable=attribute-error
         return result
 
@@ -265,7 +304,10 @@ easiest to standardize and work with for this framework.
 
         PURPOSE:  Store data we are collecting from the user for the
                   command in a smart way so that different users or
-                  different commands don't clobber each other.
+                  different commands don't clobber each other. This also
+                  calls self.clean_str and self.clean_generic_data so
+                  sub-classes can override those to clean parameter values
+                  if desired.
 
                   *IMPORTANT*: Do *NOT* access `self._info` directly.
                                Use store_data, get_data, and clear_data.
@@ -276,8 +318,53 @@ easiest to standardize and work with for this framework.
         record = self._info.get((self.name(), chat_id), {})
         if not record:
             self._info[(self.name(), chat_id)] = record
-        record.update(**data)
+        clean_data = {k: (self.clean_str(k, v) if isinstance(v, str)
+                          else self.clean_generic_data(k, v))
+                      for k,v in data.items()}
+        record.update(**clean_data)
         return record
+
+    @classmethod
+    def clean_str(cls, key: str, value: str) -> str:
+        """Clean string value in key/value pair used in store_data.
+
+        :param key:    Key or name for parameter.
+
+        :param value:  Parameter value.
+
+        ~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-
+
+        :return:  Cleaned version of value with weird characters replaced.
+
+        ~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-
+
+        PURPOSE:  Replace weird characters with '_'.  Sub-classes can override
+                  this if desired to clean or not clean certain parameters.
+        """
+        logging.debug('Ignoring key %s, but sub-classes can use it.', key)
+        return re.sub('[^a-zA-Z0-9 \n.]', '_', value)
+
+    @staticmethod
+    def clean_generic_data(key: str, value):
+        """Clean parameter value in key/value pair used in store_data.
+
+        :param key:    Key or name for parameter.
+
+        :param value:  Parameter value.
+
+        ~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-
+
+        :return:  Cleaned version of value.
+
+        ~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-
+
+        PURPOSE:  Clean parameter value.  Does nothing by default but
+                  sub-classes can override this if desired to clean or
+                  not clean certain parameters.
+
+        """
+        logging.debug('Ignoring key %s, but sub-classes can use it.', key)
+        return value
 
     def clear_data(self, update):
         """Like store_data except clears all data for the command from user.
@@ -339,8 +426,8 @@ First sets defaults and then calls self.review.
         """
         if self.end_without_review(update, context):
             return ConversationHandler.END
-        
-        reply_markup = self._make_main_reply_markup(update)        
+
+        reply_markup = self._make_main_reply_markup(update)
         update_message = self.get_message(update)
         update_message.reply_text(text=f'Preparing command: {self.name()}',
                                   reply_markup=reply_markup)
@@ -366,11 +453,12 @@ prepare arguments (e.g., default arguments or command line arguments).
         # pytype: disable=attribute-error
         with click.Context(pcmd, resilient_parsing=True) as ctx:
             # pytype: enable=attribute-error
-            split_args = shlex.split(' '.join(context.args))
-            pcmd.parse_args(ctx,               # make a copy of split_args
-                            list(split_args))  # since parse_args modifies it
-            logging.info('For %s, parsed command line: %s',
-                         self.name(), split_args)
+            if context.args is not None:
+                split_args = shlex.split(' '.join(context.args))
+                pcmd.parse_args(ctx,               # make a copy of split_args
+                                list(split_args))  # since parse_args changes it
+                logging.info('For %s, parsed command line: %s',
+                             self.name(), split_args)
             if ctx.params:
                 logging.info('Storing parsed args: %s', ctx.params)
                 self.store_data(update, ctx.params)
@@ -415,7 +503,7 @@ with callback data of the form `'do#{name}#{action}#{values}'` and
 here we parse apart that data and handle the action.
         """
         data = update.callback_query.data
-        msg, name, action, *values = data.split('#')
+        msg, name, action, values = self.parse_callback_data(data)
         if msg == 'do':
             assert name == self.name(), (
                 f'Invalid callback data {data} for cmd {self.name()}')
@@ -426,16 +514,59 @@ here we parse apart that data and handle the action.
                 action, data, values, update, context)
         raise ValueError(f'Invalid {msg=} in {data=}')
 
-    def do_invoke(self, update, context, name, values):
+    def _tg_callback_for_start(self, update, context):
+        data = update.callback_query.data
+        msg, name, action, values = self.parse_callback_data(data)
+        assert msg == 'start' and name == self.name() and action == 'prepare', (
+            f'Invalid callback data {data} for cmd {self.name()}')
+        self._fill_data_from_update(update, values)
+        return self.review(update, context)
+
+    def _fill_data_from_update(self, update, values=None):
+        if values:
+            vdict = CallbackData.param_list_to_dict(values)
+            self.store_data(update, vdict)
+
+    def do_invoke(self, update, context, name: str, values):
+        """Invoke a command directly (e.g., via callback from inline kbd).
+
+        :param update:   The update from telegram bot.
+
+        :param context:  The context from telegram bot.
+
+        :param name:     String name of command to execute.
+
+        :param values:   List of strings representing a dictionary that
+                         we can parse via CallbackData.param_list_to_dict.
+
+        ~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-
+
+        PURPOSE:  This method allows you to setup a callback for an inline
+                  keyboard button to invoke a command. Basically you first
+                  create callback data using something like
+
+                    create_callback_data('callback', name, 'invoke', *values)
+
+                  and use that as callback_data for an InlineKeyboardButton.
+                  Then when the user clicks the button, the CallbackQueryHandler
+                  that gets setup via _setup_callback_handler_for_cmd will see
+                  the callback, call generic_callback_query, and that will
+                  see the 'invoke' action and call this method.
+        """
         main_bot = self.get_bot_ref()
         cmd = main_bot.cmds_dict.get(name)
         if not cmd:
-            raise ValueError(f'Could not invoke command {name}.')#FIXME
+            raise ValueError(f'Could not invoke command {name}.')
         kwargs = dict(zip(values[::2], values[1::2]))
         cmd.store_data(update, kwargs)
         cmd.process_command(update, context)
 
-    def do_action_callback(self, action, data, values, update, context):
+    def do_action_callback(self, action: str, data, values, update, context):
+        """Helper to process a callback from the conversation handler.
+
+Mean to be called by _tg_callback to respond to an action from the user
+clicking an inline keyboard button and triggering a callback.
+        """
         if action == 'edit':
             return self._handle_edit_button(data, values, update, context)
         if action == 'helparg':
@@ -572,9 +703,22 @@ Then we go back into STATE_REVIEW and
                          update, context)
             return result
 
-        self.respond(f'Successfully finished {self.name()}', update, context)
-        self.clear_data(update)
+        try:
+            self.respond_success(update, context)
+        except Exception as problem:  # pylint: disable=broad-except
+            logging.exception('Exception from respond_sucess: %s', problem)
+        finally:
+            self.clear_data(update)
         return ConversationHandler.END
+
+    def respond_success(self, update, context):
+        """Respond to user after we have succesfully processed a command.
+
+        By default this will call self.respond with a simple message.
+        Sometimes you may want to customize the response by overriding this
+        method.
+        """
+        self.respond(f'Successfully finished {self.name()}', update, context)
 
     def cancel(self, update, context):
         """When user hits cancel on inline keyboard, cancel command.
@@ -583,28 +727,50 @@ Then we go back into STATE_REVIEW and
         return ConversationHandler.END
 
     def generic_callback_query(self, update, context):
+        """Helper to serve as a generic callback query
+
+The _setup_callback_handler_for_cmd will setup a Telegram callback
+to trigger this method for callback data that starts with something like
+^callback#{self.name()}#.  This makes it so that when you create
+callbacks using callback_tools.CallbackData that have key='callback'
+and action='invoke', they get processed correctly.
+
+        """
         data = update.callback_query.data
-        msg, name, action, *values = data.split('#')
+        msg, name, action, values = self.parse_callback_data(data)
         assert msg == 'callback' and name == self.name()
-        FIXME#FIXME
-        
-        
+        if action == 'invoke':
+            return self.do_invoke(update, context, name, values)
+        raise ValueError(
+            f'Unexpected action {action} in callback data {data}')
+
+    def _setup_callback_handler_for_cmd(self, updater):
+        """Helper to setup a callback for the '^callback#' pattern.
+
+See also generic_callback_query.
+        """
+        updater.dispatcher.add_handler(CallbackQueryHandler(
+            self.generic_callback_query, pattern=f'^callback#{self.name()}#.*'))
+
     def add_to_bot(self, bot, updater):
         logging.info('Adding cmd %s to main bot %s', self.name(), bot)
         conv_handler = ConversationHandler(
-            entry_points=[CommandHandler(self.name(), self.main)],
+            entry_points=[CommandHandler(self.name(), self.main),
+                          CallbackQueryHandler(
+                              self._tg_callback_for_start,
+                              pattern=f'^start#{self.name()}#.*')
+            ],
             states={
                 self.STATE_REVIEW: [
                     CallbackQueryHandler(
-                        self._tg_callback, '^do#{self.name()}#.*'),
+                        self._tg_callback, pattern=f'^do#{self.name()}#.*'),
                     MessageHandler(Filters.text, self.edit)],
                 self.STATE_EDIT: [
                     MessageHandler(Filters.text, self.edit)],
                 },
             fallbacks=[
                 CommandHandler('cancel', self.cancel)])
-        updater.dispatcher.add_handler(CallbackQueryHandler(
-            self.generic_callback_query, pattern=f'^callback#{self.name()}#.*'))
+        self._setup_callback_handler_for_cmd(updater)
         updater.dispatcher.add_handler(conv_handler)
         updater.dispatcher.add_handler(CommandHandler('cancel', self.cancel))
 
@@ -646,10 +812,63 @@ See the `ExampleBot` in `tbotg.core.examples` for a full example.
         logging.info('Processing command %s from user %s at %s UTC',
                      self.name(), self.get_message(update).chat.username,
                      datetime.datetime.utcnow())
-        args = self.get_data(update)
-        result = self.click_cmd.callback(**args)
+        params = self.get_data(update)
+        for opt in self.click_cmd.params:
+            value = params.get(opt.name, None)
+            if value is not None:
+                params[opt.name] = opt.process_value(None, value)
+        result = self.invoke_click_callback(params, update, context)
         logging.info('Responding with result command %s from user %s:\n%s',
                      self.name(), self.get_message(update).chat.username,
                      result)
+        self.clear_data(update)
+        self.send_process_command_response(result, update, context)
+
+    def send_process_command_response(self, result: str, update, context,
+                                      **kwargs):
+        """Hook to respond to user after running command.
+
+        :param result:   String result message to send to user via self.respond
+
+        :param update:   The update from telegram bot.
+
+        :param context:  The context from telegram bot.
+
+        :param **kwargs: Passed to self.respond
+
+        ~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-
+
+        PURPOSE:  This method is called with the result of running a command
+                  to send that result to the user. It is mainly intended as
+                  something sub-classes can override if they want to tweak
+                  the response to the user.
+
+        """
         self.respond(result, update, context,
-                     parse_mode=self.result_parse_mode)
+                     parse_mode=self.result_parse_mode, **kwargs)
+
+    def invoke_click_callback(self, params: typing.Dict[str, typing.Any],
+                              update, context):
+        """Invoke the click callback function to process a command.
+
+        :param params:  Dictionary of options for the command.
+
+        :param update:   The update from telegram bot.
+
+        :param context:  The context from telegram bot.
+
+        ~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-
+
+        :return:  Result of running click command.
+
+        ~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-
+
+        PURPOSE:  This method takes the params the user supplied, calls
+                  self.click_cmd.callback to actually run the command, and
+                  then returns the result. Sub-classes can override this
+                  to invoke the command differently if desired (e.g., if
+                  they want to add additional information to params).
+        """
+        logging.debug('Ignoring update %s and context %s', update, context)
+        result = self.click_cmd.callback(**params)
+        return result

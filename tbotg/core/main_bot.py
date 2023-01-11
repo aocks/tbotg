@@ -5,6 +5,7 @@ import logging
 import typing
 
 import telegram
+from telegram import BotCommand
 from telegram.ext import (
     Updater, DispatcherHandlerStop, CommandHandler)
 
@@ -23,8 +24,8 @@ class TelegramMainBot:
         self.cmds_dict = {c.name(): c for c in (cmds or [])}
         if not self.cmds_dict:
             self.cmds_dict = {c.name(): c for c in self.make_cmds()}
-        for name, item in self.cmds_dict.items():
-            logging.info('Creating command %s', name)
+        for cmd_name, item in self.cmds_dict.items():
+            logging.info('Creating command %s', cmd_name)
             item.set_bot_ref(self)
         self.validate()
         self.run()
@@ -61,6 +62,10 @@ provided in `__init__`.
         self.bot = telegram.Bot(token=token)
         updater = Updater(token=token, use_context=True)
         self._add_handlers(updater)
+        # The following will set commands for the bot in the menu.
+        self.bot.set_my_commands([BotCommand(name, cmd.get_help_docs())
+                                  for name, cmd in self.cmds_dict.items()
+                                  if cmd.in_menu])
         logging.warning('start polling')
         updater.start_polling()
 

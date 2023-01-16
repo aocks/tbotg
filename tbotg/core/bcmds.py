@@ -30,7 +30,6 @@ You can sub-class this and override the `main` method to create a simple
 command. See also CmdWithArgs for a more sophisticated structure.
     """
 
-
     def __init__(self, name: typing.Optional[str] = None,
                  show_help: bool = True, in_menu: bool = True):
         """Initializer.
@@ -80,11 +79,13 @@ command. See also CmdWithArgs for a more sophisticated structure.
         return self.__doc__ or ''
 
     @staticmethod
-    def create_callback_data(key: str = 'callback', cmd: str = None,
+    def create_callback_data(key: str = 'callback',
+                             cmd: typing.Optional[str] = None,
                              action: str = 'invoke', **kwargs) -> str:
         """Create string callback data for telegram bot in canonical way.
 
-        See docs for CallbackData, CallbackData.__init__, CallbackData.to_string
+        See docs for CallbackData, CallbackData.__init__,
+        CallbackData.to_string
         """
         return CallbackData(key, cmd, action, **kwargs).to_string()
 
@@ -320,7 +321,7 @@ easiest to standardize and work with for this framework.
             self._info[(self.name(), chat_id)] = record
         clean_data = {k: (self.clean_str(k, v) if isinstance(v, str)
                           else self.clean_generic_data(k, v))
-                      for k,v in data.items()}
+                      for k, v in data.items()}
         record.update(**clean_data)
         return record
 
@@ -455,8 +456,8 @@ prepare arguments (e.g., default arguments or command line arguments).
             # pytype: enable=attribute-error
             if context.args is not None:
                 split_args = shlex.split(' '.join(context.args))
-                pcmd.parse_args(ctx,               # make a copy of split_args
-                                list(split_args))  # since parse_args changes it
+                pcmd.parse_args(  # make a copy of split_args since
+                    ctx, list(split_args))  # parse_args changes it
                 logging.info('For %s, parsed command line: %s',
                              self.name(), split_args)
             if ctx.params:
@@ -517,8 +518,9 @@ here we parse apart that data and handle the action.
     def _tg_callback_for_start(self, update, context):
         data = update.callback_query.data
         msg, name, action, values = self.parse_callback_data(data)
-        assert msg == 'start' and name == self.name() and action == 'prepare', (
-            f'Invalid callback data {data} for cmd {self.name()}')
+        assert msg == 'start' and name == self.name(
+            ) and action == 'prepare', (
+                f'Invalid callback data {data} for cmd {self.name()}')
         self._fill_data_from_update(update, values)
         return self.review(update, context)
 
@@ -547,11 +549,13 @@ here we parse apart that data and handle the action.
 
                     create_callback_data('callback', name, 'invoke', *values)
 
-                  and use that as callback_data for an InlineKeyboardButton.
-                  Then when the user clicks the button, the CallbackQueryHandler
-                  that gets setup via _setup_callback_handler_for_cmd will see
-                  the callback, call generic_callback_query, and that will
+                  and use that as callback_data for an
+                  InlineKeyboardButton.  Then when the user clicks the
+                  button, the CallbackQueryHandler that gets setup via
+                  _setup_callback_handler_for_cmd will see the
+                  callback, call generic_callback_query, and that will
                   see the 'invoke' action and call this method.
+
         """
         main_bot = self.get_bot_ref()
         cmd = main_bot.cmds_dict.get(name)
@@ -750,7 +754,8 @@ and action='invoke', they get processed correctly.
 See also generic_callback_query.
         """
         updater.dispatcher.add_handler(CallbackQueryHandler(
-            self.generic_callback_query, pattern=f'^callback#{self.name()}#.*'))
+            self.generic_callback_query,
+            pattern=f'^callback#{self.name()}#.*'))
 
     def add_to_bot(self, bot, updater):
         logging.info('Adding cmd %s to main bot %s', self.name(), bot)
@@ -759,7 +764,7 @@ See also generic_callback_query.
                           CallbackQueryHandler(
                               self._tg_callback_for_start,
                               pattern=f'^start#{self.name()}#.*')
-            ],
+                          ],
             states={
                 self.STATE_REVIEW: [
                     CallbackQueryHandler(

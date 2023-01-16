@@ -5,6 +5,7 @@ import threading
 import logging
 import typing
 
+
 class DataHashManager:
     """Intern string data into a hash table.
 
@@ -45,7 +46,7 @@ Use hid_to_data to convert result back into data.
             return hid
 
     @classmethod
-    def hid_to_data(cls, hid: int) -> str:
+    def hid_to_data(cls, hid: int) -> typing.Optional[str]:
         """Convert hid returned by data_to_hid into original string data.
         """
         with cls._hid_lock:
@@ -127,14 +128,15 @@ PURPOSE: The telegram API allows arbitrary callback data for inline
             result.append(value)
         result = '#'.join(result)
         if len(result) > 64:
-            logging.error('callback data %s too long; see %s', result, ''.join([
-                'https://docs.python-telegram-bot.org',
-                '/en/stable/telegram.inlinekeyboardbutton.html']))
+            logging.error(
+                'callback data %s too long; see %s', result, ''.join([
+                    'https://docs.python-telegram-bot.org',
+                    '/en/stable/telegram.inlinekeyboardbutton.html']))
         return result
 
     @classmethod
     def from_string(cls, callback_data: str):
-        """Convert string representing callback data into CallbackData instance.
+        """Convert str representing callback data into CallbackData instance.
 
         :param callback_data:   String produced by CallbackData.to_string.
 

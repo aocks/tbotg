@@ -62,8 +62,9 @@ test:
 
 lint:
 	flake8 ${PYTEST_TARGET} --exclude=${LINT_IGNORE}
-	pylint --rcfile=.pylintrc --jobs=4 --reports=n ${PYTEST_TARGET} \
-           --ignore=${LINT_IGNOR}
+	pylint --rcfile=.pylintrc --disable C0209\
+           --jobs=4 --reports=n ${PYTEST_TARGET} \
+           --ignore=${LINT_IGNORE}
 
 pytype:
 	pytype ${PYTEST_TARGET}

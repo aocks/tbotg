@@ -19,7 +19,7 @@ class TelegramMainBot:
     """
 
     def __init__(self, name: str, cmds: typing.Optional[typing.Sequence[
-            GenericCmd]] = None):
+            GenericCmd]] = None, webhook: typing.Optional[str] = None):
         self.bot_name = name
         self.cmds_dict = {c.name(): c for c in (cmds or [])}
         if not self.cmds_dict:
@@ -28,7 +28,11 @@ class TelegramMainBot:
             logging.info('Creating command %s', cmd_name)
             item.set_bot_ref(self)
         self.validate()
-        self.run()
+        if webhook and webhook.lower() not in ('n', 'no', 'false'):
+            logging.warning('Not starting polling since using webhook')
+            self.run(start_polling=False)
+        else:
+            self.start_polling()
 
     def validate(self):
         """Validate bot setup correctly.

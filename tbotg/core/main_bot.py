@@ -58,7 +58,7 @@ provided in `__init__`.
         """
         self.docstrings = {}
         bot_name = self.get_bot_name()
-        token = server.get_secret('token', category=bot_name)
+        token = self.get_bot_token()
         self.bot = telegram.Bot(token=token)
         updater = Updater(token=token, use_context=True)
         self._add_handlers(updater)
@@ -70,6 +70,16 @@ provided in `__init__`.
         if start_polling:
             logging.warning('start polling')
             updater.start_polling()
+
+    def get_bot_token(self):
+        """Retrive bot token.
+
+        Sub-classes can override if they want a different way to
+        obtain the secret bot token.
+        """
+        bot_name = self.get_bot_name()
+        token = server.get_secret('token', category=bot_name)
+        return token
 
     def handle_webhook_json(self, wh_json):
         update = telegram.Update.de_json(wh_json, self.bot)

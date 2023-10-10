@@ -53,7 +53,7 @@ provided in `__init__`.
         "Reutrn bot name"
         return self.bot_name
 
-    def run(self, updater=None):
+    def run(self, updater=None, start_polling=True):
         """Run the bot.
         """
         self.docstrings = {}
@@ -66,8 +66,14 @@ provided in `__init__`.
         self.bot.set_my_commands([BotCommand(name, cmd.get_help_docs())
                                   for name, cmd in self.cmds_dict.items()
                                   if cmd.in_menu])
-        logging.warning('start polling')
-        updater.start_polling()
+        self.updater = updater        
+        if start_polling:
+            logging.warning('start polling')
+            updater.start_polling()
+
+    def handle_webhook_json(self, wh_json):
+        update = telegram.Update.de_json(wh_json, self.bot)
+        return self.updater.dispatcher.process_update(update)            
 
     def _add_handlers(self, updater):
         dispatcher = updater.dispatcher
